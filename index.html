@@ -1,20 +1,410 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
-    <title>Merry Christmas · 祝师姐</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Lato:wght@300;400&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
-    <style>
-      body { margin: 0; background: #050505; overflow: hidden; font-family: 'Lato', sans-serif; }
-      canvas { touch-action: none; }
-      .font-serif { font-family: 'Cinzel', serif; }
-    </style>
-    <script type="module" crossorigin src="./assets/index-DZzAaaoo.js"></script>
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
+<title>Merry Christmas · 祝师姐</title>
+<style>
+  html,body{margin:0;padding:0;background:#0a1030;overflow:hidden;width:100%;height:100%;
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-user-select:none;user-select:none;}
+  #stage{position:fixed;inset:0;width:100%;height:100%;touch-action:none;}
+  #ui{position:fixed;inset:0;pointer-events:none;display:flex;flex-direction:column;
+    align-items:center;justify-content:flex-end;padding-bottom:4vh;z-index:5;}
+  #replay{pointer-events:auto;opacity:0;transition:opacity .8s;
+    background:rgba(255,255,255,.08);color:#ffe9a8;border:1px solid rgba(255,215,0,.55);
+    border-radius:999px;padding:10px 26px;font-size:15px;letter-spacing:.2em;cursor:pointer;
+    backdrop-filter:blur(6px);box-shadow:0 0 18px rgba(255,215,0,.25);}
+  #replay:hover{background:rgba(255,215,0,.18);}
+  #music{position:fixed;top:14px;right:14px;z-index:6;pointer-events:auto;
+    background:rgba(255,255,255,.08);color:#ffe9a8;border:1px solid rgba(255,215,0,.4);
+    border-radius:999px;width:42px;height:42px;font-size:18px;cursor:pointer;backdrop-filter:blur(6px);}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<button id="music" title="音乐">🎵</button>
+<div id="ui"><button id="replay">✨ 再画一遍</button></div>
+<script>
+"use strict";
+/* ============================================================
+   Python turtle 圣诞树 · 网页复刻版
+   递归树枝 + 金色五角星 + 彩灯闪烁 + 漫天雪花 + 打字机祝福
+   ============================================================ */
+
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+resize();
+window.addEventListener('resize', resize);
+
+/* ---------- 1. 预计算：模拟 Python turtle 画树 ---------- */
+// 复刻经典 turtle 算法:
+//   tree(d,s): forward(s); tree(d-1,s*.8); right(120);
+//              tree(d-3,s*.5)+drawlight(); right(120);
+//              tree(d-3,s*.5); right(120); backward(s)
+let segments = [];   // {x1,y1,x2,y2,c,w}
+let lights = [];     // {x,y,r,c,phase,speed}
+let groundDots = []; // {x,y,r,c}
+let starPoly = [];   // 顶星多边形
+let starPos = {x:0,y:0};
+
+const LIGHT_COLORS = ['#ff6b6b','#ffd93b','#ffb14e','#ff8fab','#9be7ff','#ffe9a8'];
+
+function makeTree(scale){
+  segments = []; lights = []; groundDots = []; starPoly = [];
+  const n = 100 * scale;
+
+  // turtle 状态（数学坐标，y 向上）
+  const t = { x:0, y:0, a:90 };
+  const rad = a => a * Math.PI / 180;
+  const forward = (d, c, w) => {
+    const x2 = t.x + Math.cos(rad(t.a)) * d;
+    const y2 = t.y + Math.sin(rad(t.a)) * d;
+    segments.push({ x1:t.x, y1:t.y, x2, y2, c, w });
+    t.x = x2; t.y = y2;
+  };
+  const move = d => { // 抬笔移动
+    const x2 = t.x + Math.cos(rad(t.a)) * d;
+    const y2 = t.y + Math.sin(rad(t.a)) * d;
+    t.x = x2; t.y = y2;
+  };
+  const left = d => t.a += d;
+  const right = d => t.a -= d;
+
+  // 顶部五角星（orange 描边 / yellow 填充），位于 y = 3n 处
+  t.x = 0; t.y = n * 3; t.a = 90;
+  left(126);
+  starPos = { x:0, y:n * 3 + n * 0.18 };
+  for (let i = 0; i < 5; i++){
+    const d = n / 5;
+    let x2 = t.x + Math.cos(rad(t.a)) * d, y2 = t.y + Math.sin(rad(t.a)) * d;
+    starPoly.push([t.x, t.y]); t.x = x2; t.y = y2;
+    right(144);
+    x2 = t.x + Math.cos(rad(t.a)) * d; y2 = t.y + Math.sin(rad(t.a)) * d;
+    starPoly.push([t.x, t.y]); t.x = x2; t.y = y2;
+    left(72);
+  }
+
+  // 先画一段树干（y: 0 → 3n），再退回到树根 y = 3n - 4.8n
+  t.x = 0; t.y = 0; t.a = 90;
+  forward(n * 3, '#1a6e35', Math.max(2, 2.5 * scale));
+  move(-(n * 4.8));
+
+  const GREEN = ['#2ea35a','#37b564','#2c9a52','#299a48'];
+  function drawlight(x, y){
+    const r0 = Math.random();
+    if (r0 < 0.07)      lights.push({x, y, r:3.5*scale, c:LIGHT_COLORS[(Math.random()*LIGHT_COLORS.length)|0], phase:Math.random()*6.28, speed:1.5+Math.random()*2.5});
+    else if (r0 < 0.12) lights.push({x, y, r:2.2*scale, c:LIGHT_COLORS[(Math.random()*LIGHT_COLORS.length)|0], phase:Math.random()*6.28, speed:1.5+Math.random()*2.5});
+  }
+  function tree(d, s, ci){
+    if (d <= 0) return;
+    const c = GREEN[ci % GREEN.length];
+    forward(s, c, Math.max(1.2, s * 0.09 * scale));
+    tree(d - 1, s * 0.8, ci + 1);
+    right(120);
+    tree(d - 3, s * 0.5, ci + 2);
+    drawlight(t.x, t.y);
+    right(120);
+    tree(d - 3, s * 0.5, ci + 1);
+    right(120);
+    forward(-s, c, Math.max(1.2, s * 0.09 * scale));
+  }
+  tree(15, n, 0);
+  move(-(n / 2));
+
+  // 地面散落的小彩点（树根在 y = -(n*1.8) 附近）
+  for (let i = 0; i < 160; i++){
+    const a = (200 - 400 * Math.random()) * scale;
+    const b = (10 - 20 * Math.random()) * scale;
+    groundDots.push({
+      x: a + b * 0.4,
+      y: -(n * 2.3) + Math.random() * (n * 0.5),
+      r: (1.5 + Math.random() * 1.5) * scale,
+      c: Math.random() < 0.5 ? '#ff6b6b' : '#ffe0a3'
+    });
+  }
+
+  // 包围盒（世界坐标）
+  let minY = 1e9, maxY = -1e9, minX = 1e9, maxX = -1e9;
+  for (const s of segments){
+    minY = Math.min(minY, s.y1, s.y2); maxY = Math.max(maxY, s.y1, s.y2);
+    minX = Math.min(minX, s.x1, s.x2); maxX = Math.max(maxX, s.x1, s.x2);
+  }
+  for (const p of starPoly){
+    minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
+    minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]);
+  }
+  makeTree.bounds = {minY, maxY, minX, maxX};
+  makeTree.scale = scale;
+}
+
+/* 世界坐标 → 屏幕：树底放在屏幕下方 86%，树高约占屏幕 62% */
+function worldToScreen(x, y){
+  const b = makeTree.bounds;
+  const s = Math.min(H * 0.62 / (b.maxY - b.minY + 40), W * 0.9 / (b.maxX - b.minX + 60));
+  return [W / 2 + (x - (b.minX + b.maxX) / 2) * s, H * 0.86 - (y - b.minY) * s];
+}
+
+/* ---------- 2. 雪花 ---------- */
+let snow = [];
+function initSnow(){
+  snow = [];
+  const count = Math.floor(W * H / 9000);
+  for (let i = 0; i < count; i++){
+    snow.push({
+      x: Math.random() * W, y: Math.random() * H,
+      r: 1 + Math.random() * 2.6,
+      v: 18 + Math.random() * 42,
+      drift: Math.random() * 2 * Math.PI,
+      dv: 0.4 + Math.random() * 0.9,
+      op: 0.35 + Math.random() * 0.6
+    });
+  }
+}
+initSnow();
+window.addEventListener('resize', initSnow);
+
+/* ---------- 3. 背景星星 ---------- */
+let bgStars = [];
+function initBgStars(){
+  bgStars = [];
+  for (let i = 0; i < 90; i++){
+    bgStars.push({ x: Math.random()*W, y: Math.random()*H*0.75, r: Math.random()*1.4+0.4, phase: Math.random()*6.28 });
+  }
+}
+initBgStars();
+window.addEventListener('resize', initBgStars);
+
+/* ---------- 4. 动画主循环 ---------- */
+let segIndex = 0;            // 已画到的线段
+let treeDoneT = 0;           // 树画完的时刻
+let textPhase = 0;           // 0=未开始 1=打英文 2=打中文 3=完成
+let typedEn = 0, typedZh = 0;
+let dotsShown = 0;
+let startT = 0;
+const TEXT_EN = "Merry Christmas";
+const TEXT_ZH = "师姐，今年的圣诞节可以和你一起过吗？";
+
+function reset(){
+  makeTree(Math.min(1.1, Math.max(0.7, W / 900)));
+  segIndex = 0; dotsShown = 0;
+  treeDoneT = 0; textPhase = 0; typedEn = 0; typedZh = 0;
+  startT = performance.now();
+  document.getElementById('replay').style.opacity = 0;
+}
+reset();
+
+// 离屏画布：树的静态部分
+const off = document.createElement('canvas');
+const octx = off.getContext('2d');
+
+function drawSegmentsTo(upto){
+  for (let i = segIndex; i < upto; i++){
+    const s = segments[i];
+    const a = worldToScreen(s.x1, s.y1), b = worldToScreen(s.x2, s.y2);
+    octx.strokeStyle = s.c;
+    octx.lineWidth = s.w;
+    octx.lineCap = 'round';
+    octx.beginPath();
+    octx.moveTo(a[0], a[1]);
+    octx.lineTo(b[0], b[1]);
+    octx.stroke();
+  }
+  segIndex = upto;
+}
+
+function drawStar(time, alpha){
+  const p = starPoly.map(pt => worldToScreen(pt[0], pt[1]));
+  const c = worldToScreen(starPos.x, starPos.y);
+  const glow = 0.55 + 0.45 * Math.sin(time * 2.2);
+  const grd = ctx.createRadialGradient(c[0], c[1], 4, c[0], c[1], 70);
+  grd.addColorStop(0, `rgba(255,220,90,${0.5 * glow * alpha})`);
+  grd.addColorStop(1, 'rgba(255,220,90,0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath(); ctx.arc(c[0], c[1], 70, 0, 6.3); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(p[0][0], p[0][1]);
+  for (let i = 1; i < p.length; i++) ctx.lineTo(p[i][0], p[i][1]);
+  ctx.closePath();
+  ctx.fillStyle = `rgba(255,214,64,${alpha})`;
+  ctx.strokeStyle = `rgba(255,140,20,${alpha})`;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(255,200,50,.9)';
+  ctx.shadowBlur = 18;
+  ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+let lastFrame = performance.now();
+function frame(now){
+  const dt = Math.min((now - lastFrame) / 1000, 0.05);
+  lastFrame = now;
+  const time = (now - startT) / 1000;
+
+  // 背景
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#0a1030');
+  bg.addColorStop(0.6, '#0d1640');
+  bg.addColorStop(1, '#131c4d');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // 背景星星
+  for (const s of bgStars){
+    const tw = 0.4 + 0.6 * Math.abs(Math.sin(time * 0.8 + s.phase));
+    ctx.fillStyle = `rgba(255,255,255,${tw * 0.7})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.3); ctx.fill();
+  }
+
+  // 树的绘制进度（约 11 秒画完）
+  const total = segments.length;
+  const DRAW_SECONDS = 11;
+  const target = treeDoneT ? total : Math.min(total, Math.floor(total * time / DRAW_SECONDS));
+
+  if (off.width !== canvas.width || off.height !== canvas.height){
+    off.width = canvas.width; off.height = canvas.height;
+    octx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // 尺寸变化后从零重画
+    segIndex = 0;
+    octx.clearRect(0, 0, W, H);
+  }
+  drawSegmentsTo(target);
+  ctx.drawImage(off, 0, 0, W, H);
+
+  // 树干底部小彩点逐渐出现
+  if (target >= total * 0.55){
+    const show = Math.min(groundDots.length,
+      Math.ceil((target - total * 0.55) / (total * 0.45) * groundDots.length));
+    for (let i = dotsShown; i < show; i++){
+      const d = groundDots[i];
+      const p = worldToScreen(d.x, d.y);
+      ctx.fillStyle = d.c;
+      ctx.shadowColor = d.c; ctx.shadowBlur = 6;
+      ctx.beginPath(); ctx.arc(p[0], p[1], d.r, 0, 6.3); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    dotsShown = show;
+  }
+
+  const treeDone = target >= total;
+
+  // 彩灯闪烁
+  const lightCount = treeDone ? lights.length : Math.floor(lights.length * target / total);
+  for (let i = 0; i < lightCount; i++){
+    const L = lights[i];
+    const p = worldToScreen(L.x, L.y);
+    const tw = 0.35 + 0.65 * Math.abs(Math.sin(time * L.speed + L.phase));
+    ctx.globalAlpha = tw;
+    ctx.fillStyle = L.c;
+    ctx.shadowColor = L.c; ctx.shadowBlur = 12;
+    ctx.beginPath(); ctx.arc(p[0], p[1], L.r, 0, 6.3); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
+
+  // 五角星（树画到 8% 后出现）
+  if (target > total * 0.08){
+    const alpha = treeDone ? 1 : Math.min(1, (target - total * 0.08) / (total * 0.1));
+    drawStar(time, alpha);
+  }
+
+  // 雪花
+  for (const f of snow){
+    f.y += f.v * dt;
+    f.drift += f.dv * dt;
+    f.x += Math.sin(f.drift) * 12 * dt;
+    if (f.y > H + 5){ f.y = -5; f.x = Math.random() * W; }
+    ctx.fillStyle = `rgba(255,255,255,${f.op})`;
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 6.3); ctx.fill();
+  }
+
+  // 打字机文字
+  if (treeDone){
+    if (!treeDoneT) treeDoneT = now;
+    const since = (now - treeDoneT) / 1000;
+    if (since > 0.6 && textPhase === 0) textPhase = 1;
+    if (textPhase === 1){
+      typedEn = Math.min(TEXT_EN.length, Math.floor((since - 0.6) / 0.14));
+      if (typedEn >= TEXT_EN.length) textPhase = 2;
+    }
+    if (textPhase === 2 && since > 2.4){
+      typedZh = Math.min(TEXT_ZH.length, Math.floor((since - 2.4) / 0.16));
+      if (typedZh >= TEXT_ZH.length) textPhase = 3;
+    }
+
+    ctx.textAlign = 'center';
+    const en = TEXT_EN.slice(0, typedEn);
+    if (en){
+      ctx.font = `700 ${Math.min(52, W * 0.09)}px Georgia,'Times New Roman',serif`;
+      ctx.shadowColor = 'rgba(255,215,0,.85)'; ctx.shadowBlur = 22;
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText(en, W / 2, H * 0.11);
+      ctx.shadowBlur = 0;
+    }
+    const zh = TEXT_ZH.slice(0, typedZh);
+    if (zh){
+      ctx.font = `500 ${Math.min(22, W * 0.042)}px 'PingFang SC','Microsoft YaHei',sans-serif`;
+      ctx.shadowColor = 'rgba(255,235,170,.7)'; ctx.shadowBlur = 10;
+      ctx.fillStyle = '#ffeec2';
+      const cursor = textPhase === 2 && (Math.floor(time * 2) % 2 === 0) ? '▏' : '';
+      ctx.fillText(zh + cursor, W / 2, H * 0.185);
+      ctx.shadowBlur = 0;
+    }
+    if (textPhase === 3){
+      ctx.font = `400 ${Math.min(15, W * 0.032)}px sans-serif`;
+      ctx.fillStyle = 'rgba(255,255,255,.55)';
+      ctx.fillText('🎄 ❄️ 🎅 🎁 🕯️ ❄️ 🎄', W / 2, H * 0.235);
+      document.getElementById('replay').style.opacity = 1;
+    }
+  }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- 5. 交互 ---------- */
+document.getElementById('replay').addEventListener('click', reset);
+
+// 简易八音盒：Jingle Bells 片段（默认关闭）
+let audioCtx = null, musicOn = false, musicTimer = null;
+const NOTES = { E5:659.3, D5:587.3, C5:523.3, G4:392, G5:784, A4:440, B4:493.9 };
+const MELODY = [
+  ['E5',.25],['E5',.25],['E5',.5],['E5',.25],['E5',.25],['E5',.5],
+  ['E5',.25],['G5',.25],['C5',.375],['D5',.125],['E5',.5],
+  ['D5',.25],['D5',.25],['E5',.25],['D5',.25],['G4',.5],
+];
+let mi = 0;
+function playNote(freq, dur){
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = 'triangle'; o.frequency.value = freq;
+  g.gain.setValueAtTime(0.12, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + dur);
+}
+document.getElementById('music').addEventListener('click', function(){
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  musicOn = !musicOn;
+  this.style.background = musicOn ? 'rgba(255,215,0,.3)' : 'rgba(255,255,255,.08)';
+  if (musicOn){
+    const step = () => {
+      if (!musicOn) return;
+      const [n, d] = MELODY[mi % MELODY.length];
+      playNote(NOTES[n], d * 0.9);
+      mi++;
+      musicTimer = setTimeout(step, d * 1000 + 60);
+    };
+    step();
+  } else clearTimeout(musicTimer);
+});
+</script>
+</body>
 </html>
