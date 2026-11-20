@@ -394,6 +394,28 @@ function frame(now){
 }
 requestAnimationFrame(frame);
 
+/* 保底：若 rAF 被浏览器暂停/降频（后台标签、部分内嵌浏览器），
+   3.5 秒后一次性画完整棵树并同步渲染一帧，确保页面绝不空白 */
+setTimeout(() => {
+  if (segIndex >= segments.length * 0.5) return;
+  if (off.width !== canvas.width || off.height !== canvas.height){
+    off.width = canvas.width; off.height = canvas.height;
+    octx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  offNeedsClear = false;
+  octx.clearRect(0, 0, W, H);
+  segIndex = 0;
+  drawSegmentsTo(segments.length);
+  dotsShown = 0;
+  treeDoneT = performance.now();
+  textPhase = 3;
+  typedEn = TEXT_EN.length;
+  typedZh = TEXT_ZH.length;
+  try { render(performance.now()); }
+  catch (e) { showError(e); }
+  document.getElementById('replay').style.opacity = 1;
+}, 3500);
+
 /* ---------- 5. 交互 ---------- */
 document.getElementById('replay').addEventListener('click', reset);
 
