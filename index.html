@@ -189,7 +189,8 @@ let treeDoneT = 0;           // 树画完的时刻
 let textPhase = 0;           // 0=未开始 1=打英文 2=打中文 3=完成
 let typedEn = 0, typedZh = 0;
 let dotsShown = 0;
-let startT = 0;
+let startT = null;           // 由首帧 rAF 时间戳自同步，避免时间基准不一致
+let offNeedsClear = true;
 const TEXT_EN = "Merry Christmas";
 const TEXT_ZH = "师姐，今年的圣诞节可以和你一起过吗？";
 
@@ -197,7 +198,7 @@ function reset(){
   makeTree(Math.min(1.1, Math.max(0.7, W / 900)));
   segIndex = 0; dotsShown = 0;
   treeDoneT = 0; textPhase = 0; typedEn = 0; typedZh = 0;
-  startT = performance.now();
+  startT = null; offNeedsClear = true;
   document.getElementById('replay').style.opacity = 0;
 }
 reset();
@@ -243,11 +244,12 @@ function drawStar(time, alpha){
   ctx.shadowBlur = 0;
 }
 
-let lastFrame = performance.now();
-function frame(now){
-  const dt = Math.min((now - lastFrame) / 1000, 0.05);
+let lastFrame = null;
+function render(now){
+  if (startT === null) startT = now;
+  const dt = lastFrame === null ? 0.016 : Math.min((now - lastFrame) / 1000, 0.05);
   lastFrame = now;
-  const time = (now - startT) / 1000;
+  const time = Math.max(0, (now - startT) / 1000);
 
   // 背景
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -269,12 +271,15 @@ function frame(now){
   const DRAW_SECONDS = 11;
   const target = treeDoneT ? total : Math.min(total, Math.floor(total * time / DRAW_SECONDS));
 
-  if (off.width !== canvas.width || off.height !== canvas.height){
-    off.width = canvas.width; off.height = canvas.height;
-    octx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    // 尺寸变化后从零重画
+  if (off.width !== canvas.width || off.height !== canvas.height || offNeedsClear){
+    if (off.width !== canvas.width || off.height !== canvas.height){
+      off.width = canvas.width; off.height = canvas.height;
+      octx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    }
+    // 重播 / 首帧：从零重画
     segIndex = 0;
     octx.clearRect(0, 0, W, H);
+    offNeedsClear = false;
   }
   drawSegmentsTo(target);
   ctx.drawImage(off, 0, 0, W, H);
@@ -366,7 +371,26 @@ function frame(now){
     }
   }
 
-  requestAnimationFrame(frame);
+  ctx.textAlign = 'left';
+  ctx.font = '10px monospace';
+  ctx.fillStyle = 'rgba(255,255,255,.35)';
+  ctx.fillText('draw ' + target + '/' + total + '  t=' + time.toFixed(1), 10, H - 8);
+}
+
+function showError(e){
+  let d = document.getElementById('__err');
+  if (!d){
+    d = document.createElement('div');
+    d.id = '__err';
+    d.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:#300;color:#f88;font:12px monospace;padding:6px;max-width:100%;white-space:pre-wrap';
+    document.body.appendChild(d);
+  }
+  d.textContent = 'ERR: ' + (e && e.message ? e.message : e) + '\n' + ((e && e.stack) || '').slice(0, 300);
+}
+function frame(now){
+  try { render(now); }
+  catch (e) { showError(e); }
+  finally { requestAnimationFrame(frame); }
 }
 requestAnimationFrame(frame);
 
